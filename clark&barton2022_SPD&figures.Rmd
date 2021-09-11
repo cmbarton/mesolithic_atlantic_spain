@@ -1,0 +1,284 @@
+---
+title: "Mesolithic of Northern Iberia"
+subtitle: ""
+author: C Michael Barton and Geoffrey A Clark,
+date: 'Last Updated: `r Sys.Date()`'
+mainfont: Times New Roman
+monofont: Monaco
+geometry: margin=1in
+fontsize: 12pt
+output:
+  html_document:
+    theme: spacelab
+    toc: yes
+    toc_depth: 3
+    toc_float: true
+  word_document:
+    toc: yes
+    toc_depth: '3'
+  html_notebook: null
+editor_options: 
+  chunk_output_type: inline
+---
+**Copyright (c) C. Michael Barton and Geoffrey A Clark, Arizona State Unversity, 2021. All rights reserved. This software and associated data are licensed under the MIT open source license.** 
+
+```{r setup, warning=FALSE, message=FALSE, results="hide", echo=FALSE}
+library(tidyverse)
+library(Bchron)
+library(rcarbon)
+library(doParallel)@
+library(parallel)
+
+## Read in raw data file
+NIberia_all <- read_csv("NIberia_all.csv",
+                        col_types = cols(PG.ID = col_integer(),
+                                         C14mean = col_integer(),
+                                         C14sdev = col_integer(),
+                                         calBPmedian = col_integer(), 
+                                         notes = col_character()))
+
+ncores <- detectCores()
+options(Ncpus = ncores)
+```
+
+# Calibration and SPD with the BCHRON package
+
+## Calibrate dates
+
+### All dates
+```{r calibrate}
+all.dates.calibrated <- with(NIberia_all, BchronCalibrate(ages = C14mean, ageSds = C14sdev, calCurves = calib.curve, positions = site))
+
+NIberia_all$calBPmedian <- sapply(1:length(all.dates.calibrated), function(x) round(median(all.dates.calibrated[[x]]$ageGrid)))
+
+```
+
+
+### Filter dates to remove those with high COV
+```{r filter}
+NIberia_filtered <- NIberia_all %>% 
+  mutate(C14.COV=C14sdev/C14mean) %>% 
+  dplyr::filter(C14.COV<=0.1)
+```
+
+
+# Calibration, SPD, and modeling with RCARBON package
+Dates are binned into 100 year intervals by site
+
+### Compare Cantabria SPD to model
+
+#### Graph results (Figure 18)
+``` {r fig18_graph, echo=FALSE, warning=FALSE, message=FALSE, results="hide", fig.width=9, fig.height=5}
+date.bins <- NIberia_filtered %>% 
+  dplyr::filter(region=="Cantabria", calib.curve != "normal") %>% 
+  with(., binPrep(site, C14mean, 100))
+
+model.c <- NIberia_filtered %>% 
+  dplyr::filter(region=="Cantabria" & calib.curve != "normal") %>%  
+  with(., calibrate(x=C14mean, errors=C14sdev, calCurves = calib.curve, normalised=TRUE, calMatrix=FALSE)) %>% 
+  modelTest(., 
+            errors = subset(NIberia_filtered, region=="Cantabria" &  calib.curve != "normal")$C14sdev, 
+            timeRange = c(13000,4500), 
+            runm = 500, 
+            model="exponential", 
+            datenormalised=TRUE, 
+            nsim = 200, 
+            ncores = ncores,
+            method = 'calsample', 
+            bins = date.bins)
+  
+par(mar=c(7,7,7,3))
+plot(model.c, xlim = c(12000,5000), col.obs = 'red', lwd.obs = 5, drawaxes = F)
+axis(1, cex.axis = 2, pos = -.004)
+axis(2, cex.axis = 2, pos = 12050)
+mtext(side=1, line=5, "calibrated years BP", cex=2.5)
+mtext(side=2, line=4, "summed probability density", cex=2.5)
+title(main=paste("Cantabria Assemblages (N = ", nrow(subset(NIberia_filtered, region=="Cantabria" &  calib.curve != "normal")), ")\n"), cex.main = 3)
+```
+
+#### Summarize results
+```{r fig18_summary, warning=FALSE, message=FALSE, echo=FALSE}
+summary(model.c)
+```
+
+*****
+
+### Compare País Vasco SPD to model
+
+#### Graph results (Figure 19)
+```{r fig19_graph, warning=FALSE, message=FALSE, results="hide", fig.width=9, fig.height=5}
+date.bins <- NIberia_filtered %>% 
+  dplyr::filter(region=="País Vasco" & calib.curve != "normal") %>% 
+  with(., binPrep(site, C14mean, 100))
+
+model.pv <- NIberia_filtered %>% 
+  dplyr::filter(region=="País Vasco", calib.curve != "normal") %>%  
+  with(., calibrate(x=C14mean, errors=C14sdev, calCurves = calib.curve, normalised=TRUE, calMatrix=FALSE)) %>% 
+  modelTest(., 
+            errors = subset(NIberia_filtered, region=="País Vasco" &  calib.curve != "normal")$C14sdev, 
+            timeRange = c(13000,4500), 
+            runm = 500, 
+            model="exponential", 
+            datenormalised=TRUE, 
+            nsim = 200, 
+            ncores = ncores,
+            method = 'calsample', 
+            bins = date.bins)
+ 
+par(mar=c(7,7,7,3))
+plot(model.pv, xlim = c(12000,5000), col.obs = 'red', lwd.obs = 5, drawaxes = F)
+axis(1, cex.axis = 2, pos = -.001)
+axis(2, cex.axis = 2, pos = 12050)
+mtext(side=1, line=5, "calibrated years BP", cex=2.5)
+mtext(side=2, line=4, "summed probability density", cex=2.5)
+title(main=paste("País Vasco Assemblages (N = ", nrow(subset(NIberia_filtered, region=="País Vasco" &  calib.curve != "normal")), ")"), cex.main = 3)
+```
+#### Summarize results
+```{r fig19_summary, warning=FALSE, message=FALSE, echo=FALSE}
+summary(model.pv)
+```
+
+*****
+
+### Compare Middle Ebro SPD to model
+
+#### Graph results (Figure 20)
+```{r fig20_graph, warning=FALSE, message=FALSE, results="hide", fig.width=9, fig.height=5}
+date.bins <- NIberia_filtered %>% 
+  dplyr::filter(region=="Ebro", calib.curve != "normal") %>% 
+  with(., binPrep(site, C14mean, 100))
+
+model.e <- NIberia_filtered %>% 
+  dplyr::filter(region=="Ebro" & calib.curve != "normal") %>%  
+  with(., calibrate(x=C14mean, errors=C14sdev, calCurves = calib.curve, normalised=TRUE, calMatrix=FALSE)) %>% 
+  modelTest(., 
+            errors = subset(NIberia_filtered, region=="Ebro" &  calib.curve != "normal")$C14sdev, 
+            timeRange = c(13000,4500), 
+            runm = 500, 
+            model="exponential", 
+            datenormalised=TRUE, 
+            nsim = 200, 
+            ncores = ncores,
+            method = 'calsample', 
+            bins = date.bins)
+  
+par(mar=c(7,7,7,3))
+plot(model.e, xlim = c(12000,5000), col.obs = 'red', lwd.obs = 5, drawaxes = F)
+axis(1, cex.axis = 2, pos = -.004)
+axis(2, cex.axis = 2, pos = 12050)
+mtext(side=1, line=5, "calibrated years BP", cex=2.5)
+mtext(side=2, line=4, "summed probability density", cex=2.5)
+title(main=paste("Middle Ebro Assemblages (N = ", nrow(subset(NIberia_filtered, region=="Ebro" &  calib.curve != "normal")), ")"), cex.main = 3)
+```
+#### Summarize results
+```{r fig20_summary, warning=FALSE, message=FALSE, echo=FALSE}
+summary(model.e)
+```
+
+*****
+
+### Compare Galicia SPD to model
+
+#### Graph results (Figure 21)
+```{r fig21_graph, fig.height=5, fig.width=9, message=FALSE, warning=FALSE, results="hide"}
+date.bins <- NIberia_filtered %>% 
+  dplyr::filter(region=="Galicia" & calib.curve != "normal") %>% 
+  with(., binPrep(site, C14mean, 100))
+
+model.g <- NIberia_filtered %>% 
+  dplyr::filter(region=="Galicia", calib.curve != "normal") %>%  
+  with(., calibrate(x=C14mean, errors=C14sdev, calCurves = calib.curve, normalised=TRUE, calMatrix=FALSE)) %>% 
+  modelTest(., 
+            errors = subset(NIberia_filtered, region=="Galicia" &  calib.curve != "normal")$C14sdev, 
+            timeRange = c(13000,4500), 
+            runm = 500, 
+            model="exponential", 
+            datenormalised=TRUE, 
+            nsim = 200, 
+            ncores = ncores,
+            method = 'calsample', 
+            bins = date.bins)
+  
+par(mar=c(7,7,7,3))
+plot(model.g, xlim = c(12000,5000), col.obs = 'red', lwd.obs = 5, drawaxes = F)
+axis(1, cex.axis = 2, pos = -.0007)
+axis(2, cex.axis = 2, pos = 12050)
+mtext(side=1, line=5, "calibrated years BP", cex=2.5)
+mtext(side=2, line=4, "summed probability density", cex=2.5)
+title(main=paste("Galicia Assemblages (N = ", nrow(subset(NIberia_filtered, region=="Galicia" &  calib.curve != "normal")), ")"), cex.main = 3)
+```
+
+#### Summarize results
+```{r fig21_summary, warning=FALSE, message=FALSE, echo=FALSE}
+summary(model.g)
+```  
+
+*****
+*****
+
+## Permutation Test: comparison of each period with model calculated from all other periods
+
+```{r fig22_graph, echo=FALSE, warning=FALSE, message=FALSE, results="hide"}
+date.bins <- NIberia_filtered %>% 
+  with(., binPrep(site, C14mean, 100))
+
+
+alldates_permtest <- NIberia_filtered %>% 
+  with(., calibrate(x=C14mean, errors=C14sdev, calCurves = calib.curve, normalised=TRUE, calMatrix=FALSE)) %>%  
+  permTest(., marks = NIberia_filtered$region, 
+                   timeRange = c(13000,4500),
+                   runm = 500, 
+                   bins = date.bins, 
+                   nsim = 200,
+                   datenormalised = TRUE,
+                   spdnormalised = FALSE)
+```
+
+#### Graph results (Figure 22)
+
+```{r fig22_summary, echo=FALSE, warning=FALSE, message=FALSE, results="hide", fig.width=6, fig.height=10}
+par(mfrow=c(4,1))
+par(mar=c(7,7,7,3))
+par(bty = 'n') 
+
+plot(alldates_permtest,focalm = 1, lwd.obs = 5, col.obs = 'red', drawaxes = F,  xlim = c(12000,5000), ylim = c(0,0.07))
+axis(1, cex.axis = 2, pos = -.004)
+axis(2, cex.axis = 2, pos = 12050)
+mtext(side=2, line=4, "summed probability density", cex=1.5)
+title(main=paste("Cantabria (N = ", nrow(subset(NIberia_filtered, region=="Cantabria")), ")"), cex.main = 2.5)
+
+plot(alldates_permtest,focalm = 2, lwd.obs = 5, col.obs = 'red', drawaxes = F,  xlim = c(12000,5000), ylim = c(0,0.11))
+axis(1, cex.axis = 2, pos = -.005)
+axis(2, cex.axis = 2, pos = 12050)
+mtext(side=2, line=4, "summed probability density", cex=1.5)
+title(main=paste("Middle Ebro (N = ", nrow(subset(NIberia_filtered, region=="Ebro")), ")"), cex.main = 2.5)
+
+plot(alldates_permtest,focalm = 4, lwd.obs = 5, col.obs = 'red', drawaxes = F,  xlim = c(12000,5000))
+axis(1, cex.axis = 2, pos = -.002)
+axis(2, cex.axis = 2, pos = 12050)
+mtext(side=2, line=4, "summed probability density", cex=1.5)
+title(main=paste("País Vasco (N = ", nrow(subset(NIberia_filtered, region=="País Vasco")), ")"), cex.main = 2.5)
+
+plot(alldates_permtest,focalm = 3, lwd.obs = 5, col.obs = 'red', drawaxes = F,  xlim = c(12000,5000))
+axis(1, cex.axis = 2, pos = -.001)
+axis(2, cex.axis = 2, pos = 12050)
+mtext(side=1, line=5, "calibrated years BP", cex=1.5)
+mtext(side=2, line=4, "summed probability density", cex=1.5)
+title(main=paste("Galicia (N = ", nrow(subset(NIberia_filtered, region=="Galicia")), ")"), cex.main = 2.5)
+
+```
+
+#### Summarize results
+
+```{r, warning=FALSE, message=FALSE, echo=FALSE}
+summary(alldates_permtest)
+```
+
+
+
+```{r echo=FALSE, eval=FALSE}
+##Optional to save out data files
+save(NIberia_filtered, file = "NIberia_filtered.RDA")
+write_csv(NIberia_all, "NIberia_all.csv")
+```
+
